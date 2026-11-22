@@ -10,7 +10,13 @@ import type { WorktreeStatus } from '../../../src/shared/worktree/row-display/wo
 import { isConnectorSource } from '../../../src/shared/automation-event-triggers'
 import { automationUnheardSources } from '../../../src/shared/bot-event-sources'
 import { CONNECTOR_SOURCE_NAMES } from '../../../src/shared/connectors/external-conversation-link'
+import { agentSessionStartRefusalParts } from '../../../src/shared/agent-session/failures/agent-session-refusal-notice'
+import {
+  agentSessionRefusalFailure,
+  readAgentSessionErrorRefusal
+} from '../../../src/shared/agent-session/failures/agent-session-write-failure'
 import { translate } from '../i18n/mobile-i18n'
+import { mobileAgentSessionWriteNoticeText } from '../session/native-chat/agent-session/agent-session-write-notice-copy'
 import type { AgentDotState } from '../worktree/agent-lineage/agent-row-display'
 import type { BotAutomationView } from '../../../src/shared/bots/bot-activity-schema'
 
@@ -150,4 +156,14 @@ export function botSaveErrorMessage(error: unknown, hostName: string): string {
         : error instanceof Error
           ? error.message
           : translate('bots.saveFailed', 'Couldn’t save')
+}
+
+/** Why the host refused to start a chat, as native chat words it; null for any other failure. */
+export function botChatRefusalMessage(error: unknown): string | null {
+  const refusal = readAgentSessionErrorRefusal(error)
+  return refusal
+    ? mobileAgentSessionWriteNoticeText(
+        agentSessionStartRefusalParts(agentSessionRefusalFailure(refusal))
+      )
+    : null
 }

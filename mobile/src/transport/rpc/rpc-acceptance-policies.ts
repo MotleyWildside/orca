@@ -29,10 +29,12 @@ export function isStreamingOpenerReply(
   return response.ok && response.streaming === true
 }
 
-/** New-tab errors historically show the host message without its diagnostic code. */
+/** New-tab errors historically show the host message without its diagnostic code; `data` keeps a
+ *  refusal's reason for callers that word it. */
 export function requireRpcResultOrThrowMessage(response: RpcResponse): unknown {
   if (!response.ok) {
-    throw new Error(response.error.message)
+    const { message, data } = response.error
+    throw data === undefined ? new Error(message) : Object.assign(new Error(message), { data })
   }
   return response.result
 }

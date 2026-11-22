@@ -13,7 +13,11 @@ import type { BotAgent } from '../../../src/shared/bot-types'
 import { MobileAgentIcon } from '../components/icons/MobileAgentIcon'
 import { botStatusLine } from '../bots/host-bot-row-facts'
 import { hostBotsKey } from '../bots/host-bots-read'
-import { botAgentLabel, botStatusFromDots } from '../bots/mobile-bot-sheet-copy'
+import {
+  botAgentLabel,
+  botChatRefusalMessage,
+  botStatusFromDots
+} from '../bots/mobile-bot-sheet-copy'
 import { useRouteBot } from '../bots/use-route-bot'
 import { useNow } from '../hooks/use-now'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
@@ -146,11 +150,14 @@ export function useMobileSessionBot(
         sessionId
       })
       void fetchSessionTabs()
-    } catch {
+    } catch (error) {
       pendingSelectionRef.current = withoutUnansweredLaunch(pendingSelectionRef.current, lock)
       triggerError()
-      // The host's refusals are codes, not sentences for the owner.
-      showToast(t('bots.chatStartFailed', 'Couldn’t start the chat'), 1800)
+      const refusal = botChatRefusalMessage(error)
+      showToast(
+        refusal ?? t('bots.chatStartFailed', 'Couldn’t start the chat'),
+        refusal ? 3000 : 1800
+      )
     }
   }
 
