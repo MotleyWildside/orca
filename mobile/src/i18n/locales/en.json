@@ -6047,7 +6047,11 @@
       "actionFor": "{{action}}: {{title}}",
       "open": "Open",
       "chat": "Your chat with {{name}}",
-      "access": "{{person}} asked for access"
+      "access": "{{person}} asked for access",
+      "connector": "{{name}} needs you to sign in again or fix it.",
+      "fixConnector": "Open {{name}}",
+      "runSignIn": "Couldn’t run until you sign in.",
+      "openRun": "Open run"
     },
     "chat": {
       "nothingToReport": "Nothing to report"
@@ -6573,7 +6577,8 @@
       "added": "{{bot}} can now use {{app}}",
       "signedOut": "Signed out · {{via}}",
       "unreadShort": "Couldn’t load Composio’s apps.",
-      "reading": "Reading Composio…"
+      "reading": "Reading Composio…",
+      "toolName": "Composio apps"
     },
     "setup": {
       "for": "for {{name}}"

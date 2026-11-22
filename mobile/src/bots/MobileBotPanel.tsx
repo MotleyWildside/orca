@@ -110,6 +110,10 @@ export function MobileBotPanel(props: {
   }))
   const openSettings = (at: BotSettingsTarget | undefined) =>
     setSettings((current) => ({ at, opens: current.opens + 1 }))
+  const showSettings = (at: BotSettingsTarget | undefined) => {
+    openSettings(at)
+    pager.open('settings')
+  }
   const settingsScroll = useRef<ScrollViewInstance>(null)
   const now = useNow(60_000, visible)
 
@@ -162,10 +166,12 @@ export function MobileBotPanel(props: {
   })
   const { review, sheet: accessSheet } = useBotAccessDecisionSheet(props, bot, showToast)
   const { asks, count: needsYou } = usePhoneNeedsYouAsks({
-    client: visible ? props.client : null,
+    // Off under Settings, which reads its own connectors: back from a fix there reads them again.
+    client: visible && pager.page !== 'settings' ? props.client : null,
     access: props.accessRequests,
+    routeBot: props.routeBot,
+    hostName: props.hostName,
     chats: tree.kind === 'tree' ? tree.chats : null,
-    workers: props.routeBot.activity?.workers,
     items: items.read?.items,
     // A first read that failed counts no items, as nothing was read; the bot list's count stands in until one lands.
     itemCount: items.read
@@ -254,7 +260,13 @@ export function MobileBotPanel(props: {
           setSheet={setSheet}
           after={after}
           asks={asks}
-          askOpeners={{ chat: props.treeActions.openChat, worker: openWorker, access: review }}
+          askOpeners={{
+            chat: props.treeActions.openChat,
+            worker: openWorker,
+            access: review,
+            connector: (need) => showSettings(need.page),
+            stopped: props.onViewRuns ?? ((id) => pager.open(`automation:${id}`))
+          }}
           client={props.client}
           showToast={showToast}
         />
@@ -308,10 +320,7 @@ export function MobileBotPanel(props: {
         needsYou={needsYou}
         filterActive={filterLabel !== null}
         onFilter={() => setFiltering(true)}
-        onSettings={() => {
-          openSettings(undefined)
-          pager.open('settings')
-        }}
+        onSettings={() => showSettings(undefined)}
       />
       {body}
       {tab === 'items' && selectedItems.length > 0 ? (

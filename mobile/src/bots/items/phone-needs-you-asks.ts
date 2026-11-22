@@ -1,6 +1,7 @@
 // Orca's asks as the phone lists them in Needs you: the chats waiting on the owner and their workers,
-// read from the chats tree it already has, and the access requests waiting on the bot. Sign-ins stay on
-// the desktop for now, so the phone's count can be lower than the desktop's.
+// read from the chats tree it already has, the connectors that need a sign-in or fix, and the access
+// requests waiting on the bot. Tool apps' sign-ins stay on the desktop for now, so the phone's count
+// can be lower than the desktop's.
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import * as z from 'zod'
 import type { AgentSessionAwaitedApproval } from '../../../../src/shared/agent-session/agent-session-wire'
@@ -15,6 +16,11 @@ import { structuredAgentSessionHostSupport } from '../../session/native-chat/age
 import { mobileStructuredSessionStatusFeed } from '../../session/native-chat/agent-session/mobile-structured-session-status-feed'
 import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
 import type { BotAccessRequests } from '../use-bot-access-requests'
+import {
+  usePhoneConnectorNeeds,
+  type PhoneConnectorNeed
+} from '../connectors/phone-connector-needs'
+import type { RouteBot } from '../use-route-bot'
 
 export type PhoneAsk = {
   key: string
@@ -31,20 +37,31 @@ export type PhoneAsk = {
     | { chat: BotChatTreeChat }
     | { worker: BotChatTreeWorker }
     | { access: ConnectorAccessRequest }
+    | { connector: PhoneConnectorNeed }
+    /** An automation whose newest run stopped for a sign-in: listed, never counted. */
+    | { stopped: { automationId: string } }
     | null
+}
+
+/** Whether the ask counts toward Needs you: a run a sign-in stopped is context for the sign-in. */
+export function phoneAskCounts(ask: PhoneAsk): boolean {
+  return !(ask.open && 'stopped' in ask.open)
 }
 
 /** What the activity read says of a worker: its dot and the tool its permission prompt asks for. */
 export type PhoneWorkerAsk = { dot: string; tool?: { name: string; input: string | null } }
 
 /** Approvals first, then the rest: chats and their workers in the tree's order (needs-you first, then
- *  newest), then access requests, as the desktop lists them. */
+ *  newest), then connectors, then access requests, as the desktop lists them. */
 export function phoneNeedsYouAsks(
   chats: readonly BotChatTreeChat[],
   workerAsk: (dispatchId: string) => PhoneWorkerAsk | null,
   itemOf: (dispatchId: string) => Pick<BotItem, 'title' | 'number'> | null,
   chatApproval: (chat: BotChatTreeChat) => AgentSessionAwaitedApproval | undefined,
-  accessRequests: readonly ConnectorAccessRequest[]
+  connectors: readonly PhoneConnectorNeed[],
+  accessRequests: readonly ConnectorAccessRequest[],
+  /** Automations whose newest run stopped for a sign-in. */
+  stoppedForSignIn: readonly { id: string; name: string }[]
 ): PhoneAsk[] {
   const asks: PhoneAsk[] = []
   for (const chat of chats) {
@@ -81,6 +98,17 @@ export function phoneNeedsYouAsks(
       })
     }
   }
+  for (const connector of connectors) {
+    asks.push({
+      key: `connector:${connector.key}`,
+      approval: false,
+      title: connector.title,
+      worker: null,
+      number: null,
+      tool: null,
+      open: { connector }
+    })
+  }
   for (const request of accessRequests) {
     asks.push({
       key: `access:${request.requestId}`,
@@ -92,6 +120,18 @@ export function phoneNeedsYouAsks(
       open: { access: request }
     })
   }
+  // Runs don't name the connector, so with none needing the owner they are history, as on the desktop.
+  for (const automation of connectors.length > 0 ? stoppedForSignIn : []) {
+    asks.push({
+      key: `stopped:${automation.id}`,
+      approval: false,
+      title: automation.name,
+      worker: null,
+      number: null,
+      tool: null,
+      open: { stopped: { automationId: automation.id } }
+    })
+  }
   return [...asks.filter((ask) => ask.approval), ...asks.filter((ask) => !ask.approval)]
 }
 
@@ -100,6 +140,9 @@ export type PhoneAskOpeners = {
   chat: (chat: BotChatTreeChat) => void
   worker: (worker: BotChatTreeWorker) => void
   access: (request: ConnectorAccessRequest) => void
+  connector: (need: PhoneConnectorNeed) => void
+  /** The automation's runs. */
+  stopped: (automationId: string) => void
 }
 
 export function openPhoneAsk(ask: PhoneAsk, openers: PhoneAskOpeners): void {
@@ -110,8 +153,12 @@ export function openPhoneAsk(ask: PhoneAsk, openers: PhoneAskOpeners): void {
     openers.chat(ask.open.chat)
   } else if ('worker' in ask.open) {
     openers.worker(ask.open.worker)
-  } else {
+  } else if ('access' in ask.open) {
     openers.access(ask.open.access)
+  } else if ('connector' in ask.open) {
+    openers.connector(ask.open.connector)
+  } else {
+    openers.stopped(ask.open.stopped.automationId)
   }
 }
 
@@ -163,12 +210,12 @@ function useChatApprovals(
   }, [approvals])
 }
 
-/** Every ask the phone reads, and the tab's count: those asks plus `itemCount`.
- *  It is what the phone lists, so it is lower than the desktop's when a sign-in waits. */
+/** Every ask the phone reads, and the tab's count: those asks plus `itemCount`. */
 export function usePhoneNeedsYouAsks({
   client,
   chats,
-  workers,
+  routeBot,
+  hostName,
   items,
   access,
   itemCount
@@ -178,8 +225,10 @@ export function usePhoneNeedsYouAsks({
   client: RpcClient | null
   /** The chats tree once read. */
   chats: readonly BotChatTreeChat[] | null
-  /** The activity read's workers, for their dots and tools. */
-  workers: readonly ({ key: string } & PhoneWorkerAsk)[] | undefined
+  /** Its activity read's workers (their dots and tools) and automations (runs a sign-in stopped), and
+   *  what its connectors' reads need. */
+  routeBot: Pick<RouteBot, 'bot' | 'activity' | 'reads' | 'hostKey'>
+  hostName: string
   items: readonly BotItem[] | undefined
   /** The bot's waiting access requests; null without a route bot. */
   access: Pick<BotAccessRequests, 'requests'> | null
@@ -187,6 +236,9 @@ export function usePhoneNeedsYouAsks({
   itemCount: number
 }): { asks: readonly PhoneAsk[]; count: number } {
   const chatApproval = useChatApprovals(client, chats)
+  const connectors = usePhoneConnectorNeeds({ client, hostName, ...routeBot })
+  const workers = routeBot.activity?.workers
+  const automations = routeBot.activity?.automations
   const accessRequests = access?.requests
   const all = useMemo(() => {
     const byDispatch = botItemsByDispatch(items ?? [])
@@ -196,8 +248,10 @@ export function usePhoneNeedsYouAsks({
       (dispatchId) => seen.get(`worker:${dispatchId}`) ?? null,
       (dispatchId) => byDispatch.get(dispatchId) ?? null,
       chatApproval,
-      accessRequests ?? []
+      connectors,
+      accessRequests ?? [],
+      (automations ?? []).flatMap((row) => (row.needsSignIn ? [row.automation] : []))
     )
-  }, [chats, workers, items, chatApproval, accessRequests])
-  return { asks: all, count: botNeedsYouCount(all.length, itemCount) }
+  }, [chats, workers, items, chatApproval, connectors, accessRequests, automations])
+  return { asks: all, count: botNeedsYouCount(all.filter(phoneAskCounts).length, itemCount) }
 }

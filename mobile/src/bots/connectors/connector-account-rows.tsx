@@ -44,6 +44,36 @@ export function githubOrgsOf(
   )
 }
 
+/** What a Linear workspace waits on the owner for (the desktop's attention status), else undefined. */
+export function linearWorkspaceStatus(
+  linear: PhoneLinearView,
+  workspaceId: string,
+  t: Translate
+): string | undefined {
+  if (linear.status !== 'ready') {
+    return undefined
+  }
+  const linked = linear.value.workspaces.find((entry) => entry.workspaceId === workspaceId)
+  return !linked
+    ? t('settings.bots.linearStatus.unlinked', 'Not linked')
+    : linked.installed
+      ? undefined
+      : t('settings.bots.linearStatus.notInstalled', 'Orca not installed')
+}
+
+/** What GitHub waits on the owner for while the bot is in no org, else undefined. */
+export function githubAccountStatus(
+  state: ConnectorGitHubState | null,
+  orgs: ConnectorGitHubState['installations'],
+  t: Translate
+): string | undefined {
+  return !state || orgs.length > 0
+    ? undefined
+    : state.account
+      ? t('settings.bots.githubStatus.notInstalled', 'Orca not installed')
+      : t('settings.bots.githubStatus.unlinked', 'Not linked')
+}
+
 export function linearGitHubRows(input: {
   bot: PhoneBot
   linear: PhoneLinearView
@@ -55,23 +85,8 @@ export function linearGitHubRows(input: {
   t: Translate
 }): ReactNode[] {
   const { bot, githubState, githubOrgs, setPage, t } = input
-  const linearState = input.linear.status === 'ready' ? input.linear.value : null
-  const linearStatus = (workspaceId: string): string | undefined => {
-    const linked = linearState?.workspaces.find((entry) => entry.workspaceId === workspaceId)
-    return !linearState
-      ? undefined
-      : !linked
-        ? t('settings.bots.linearStatus.unlinked', 'Not linked')
-        : linked.installed
-          ? undefined
-          : t('settings.bots.linearStatus.notInstalled', 'Orca not installed')
-  }
-  const githubStatus =
-    !githubState || githubOrgs.length > 0
-      ? undefined
-      : githubState.account
-        ? t('settings.bots.githubStatus.notInstalled', 'Orca not installed')
-        : t('settings.bots.githubStatus.unlinked', 'Not linked')
+  const linearStatus = (workspaceId: string) => linearWorkspaceStatus(input.linear, workspaceId, t)
+  const githubStatus = githubAccountStatus(githubState, githubOrgs, t)
   const rows: ReactNode[] = []
   for (const workspace of botLinearWorkspaces(bot)) {
     rows.push(
