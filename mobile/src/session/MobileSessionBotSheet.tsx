@@ -2,7 +2,9 @@ import { appendReturnedDraftText } from '../../../src/shared/native-chat/input/d
 import { openBotChatTab } from './bot-chat-tab-open'
 import { setMobileNativeChatDraftText } from './native-chat/composer/drafts/mobile-native-chat-draft-store'
 import { mobileNativeChatScopeKey } from './native-chat/conversation/mobile-native-chat-scope-key'
-import { useContext, useMemo } from 'react'
+import { useContext, useEffect, useEffectEvent, useMemo, useRef } from 'react'
+import { useSessionRouteRequest } from './use-session-route-request'
+import { loadMobileNativeChatDrafts } from './native-chat/composer/drafts/mobile-native-chat-draft-persistence'
 import { MobileBotSheet } from '../bots/MobileBotSheet'
 import { MobileBotPanel } from '../bots/MobileBotPanel'
 import { MobileDictationLiveContext } from '../dictation/mobile-dictation-live-context'
@@ -91,13 +93,55 @@ export function MobileSessionBotSheet({ controller }: { controller: MobileSessio
     visible: showBotSheet || botPanel !== null,
     showToast
   })
-  if (!routeBot) {
-    return null
-  }
-  const homeChatId = routeBot.bot.chatSessionId
+  const homeChatId = routeBot?.bot.chatSessionId
   const homeTab = homeChatId
     ? sessionTabs.find((tab) => tab.type === 'agent-session' && tab.sessionId === homeChatId)
     : undefined
+  const closeSheets = () => {
+    setShowBotSheet(false)
+    setBotPanel(null)
+  }
+  const startSuggestion = homeTab
+    ? (ask: string) => {
+        closeSheets()
+        // The Home Chat's own draft, as the desktop does, whichever chat is showing.
+        const scope = mobileNativeChatScopeKey(hostId, worktreeId, homeTab.id)
+        if (scope) {
+          setMobileNativeChatDraftText(scope, (current) => appendReturnedDraftText(current, ask))
+        }
+        if (activeSessionTabId !== homeTab.id) {
+          switchSessionTab(homeTab)
+        }
+      }
+    : null
+  // An opener's draft (Update from Import) waits for the Home Chat's tab and its saved draft, then is spent.
+  const homeDraft = useSessionRouteRequest('homeDraft')
+  const appliedHomeDraft = useRef<typeof homeDraft>(null)
+  const askHomeDraft = useEffectEvent((request: NonNullable<typeof homeDraft>) => {
+    if (appliedHomeDraft.current !== request) {
+      appliedHomeDraft.current = request
+      startSuggestion?.(request.value)
+    }
+  })
+  const homeTabId = homeTab?.id
+  useEffect(() => {
+    if (!homeDraft?.value || !homeTabId || !hostId || appliedHomeDraft.current === homeDraft) {
+      return
+    }
+    let live = true
+    // A write before the saved draft is in outranks it, losing what the owner typed; theirs wins.
+    void loadMobileNativeChatDrafts(hostId, worktreeId).then((loaded) => {
+      if (live && loaded) {
+        askHomeDraft(homeDraft)
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [homeDraft, homeTabId, hostId, worktreeId])
+  if (!routeBot) {
+    return null
+  }
   const chatTabScope = {
     homeChatId,
     sessionTabs,
@@ -143,10 +187,6 @@ export function MobileSessionBotSheet({ controller }: { controller: MobileSessio
       })
     }
   }
-  const closeSheets = () => {
-    setShowBotSheet(false)
-    setBotPanel(null)
-  }
   // Its home workspace went with it, so the host's list is next, as after any removed workspace.
   const leaveDeletedBot = () => {
     closeSheets()
@@ -155,19 +195,6 @@ export function MobileSessionBotSheet({ controller }: { controller: MobileSessio
     }
   }
   const home = { folderPath: controller.worktreePath, onDeleted: leaveDeletedBot }
-  const startSuggestion = homeTab
-    ? (ask: string) => {
-        closeSheets()
-        // The Home Chat's own draft, as the desktop does, whichever chat is showing.
-        const scope = mobileNativeChatScopeKey(hostId, worktreeId, homeTab.id)
-        if (scope) {
-          setMobileNativeChatDraftText(scope, (current) => appendReturnedDraftText(current, ask))
-        }
-        if (activeSessionTabId !== homeTab.id) {
-          switchSessionTab(homeTab)
-        }
-      }
-    : null
   const newAutomation = nativeChatController.showNativeChat
     ? () => {
         closeSheets()
