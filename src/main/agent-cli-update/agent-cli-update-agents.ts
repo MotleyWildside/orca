@@ -127,7 +127,9 @@ const AGENT_CLI_UPDATE_DEFINITIONS: Record<AgentCliUpdateAgent, AgentCliUpdateDe
               agentSessionInstallCommand('qwen-code', process.platform) ??
               'npm install -g @qwen-code/qwen-code@latest'
           }
-  }
+  },
+  // `codebuddy update` follows how it was installed (npm, Homebrew or its native installer).
+  codebuddy: { latest: () => npm('@tencent-ai/codebuddy-code'), plan: selfUpdate('update') }
 }
 
 export function agentCliUpdateDefinition(agent: AgentCliUpdateAgent): AgentCliUpdateDefinition {
